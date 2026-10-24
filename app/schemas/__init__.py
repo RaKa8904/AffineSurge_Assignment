@@ -11,10 +11,11 @@ from app.schemas.node import (
     NodeCreate,
     NodeResponse,
     NodeTreeNode,
+    NodeDiffSummary,
+    NodeDetailResponse,
     NodeSearchResult,
 )
 from app.schemas.selection import (
-    SelectionItemInput,
     SelectionCreateRequest,
     SelectionResponse,
     SelectionNodeResponse,
@@ -34,8 +35,9 @@ __all__ = [
     "NodeCreate",
     "NodeResponse",
     "NodeTreeNode",
+    "NodeDiffSummary",
+    "NodeDetailResponse",
     "NodeSearchResult",
-    "SelectionItemInput",
     "SelectionCreateRequest",
     "SelectionResponse",
     "SelectionNodeResponse",

@@ -244,6 +244,11 @@ class Node(Base):
         )
         return self.content_hash
 
+    @property
+    def level(self) -> int:
+        """Hierarchy level alias for depth."""
+        return self.depth
+
     def __repr__(self) -> str:
         return (
             f"<Node(id={self.id}, type='{self.node_type}', "

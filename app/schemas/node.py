@@ -1,9 +1,9 @@
-"""Pydantic schemas for Document Tree Nodes.
+"""Pydantic schemas for Document Tree Nodes and Browse APIs.
 """
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.node import NodeType, ChangeStatus
 
 
@@ -13,9 +13,23 @@ class NodeBase(BaseModel):
     section_number: Optional[str] = None
     content: str
     depth: int = 0
+    level: int = 0
     order_index: int = 0
     page_number: Optional[int] = None
     hierarchical_path: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_level_and_depth(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "depth" in data and "level" not in data:
+                data["level"] = data["depth"]
+            elif "level" in data and "depth" not in data:
+                data["depth"] = data["level"]
+        elif hasattr(data, "depth") and not hasattr(data, "level"):
+            # ORM model
+            pass
+        return data
 
 
 class NodeCreate(NodeBase):
@@ -44,6 +58,14 @@ class NodeResponse(NodeBase):
     created_at: datetime
     updated_at: datetime
 
+    @model_validator(mode="before")
+    @classmethod
+    def set_level_from_orm(cls, data: Any) -> Any:
+        if hasattr(data, "depth") and not isinstance(data, dict):
+            # Create a proxy dict or let from_attributes handle it with level=depth
+            pass
+        return data
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -54,7 +76,37 @@ class NodeTreeNode(NodeResponse):
     model_config = ConfigDict(from_attributes=True)
 
 
+class NodeDiffSummary(BaseModel):
+    """Lightweight diff summary for nodes linked to a previous version."""
+    change_status: ChangeStatus
+    linked_node_id: Optional[str] = None
+    similarity_score: Optional[float] = None
+    change_summary: Optional[str] = None
+    prior_content_hash: Optional[str] = None
+    prior_title: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NodeDetailResponse(NodeResponse):
+    """Detailed response for a single node including full text, children, and diff."""
+    children: List[NodeResponse] = Field(default_factory=list)
+    diff_summary: Optional[NodeDiffSummary] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class NodeSearchResult(BaseModel):
-    node: NodeResponse
-    matched_text_snippet: str
-    score: float
+    """Search match result across headings and content."""
+    id: str
+    version_id: str
+    section_number: Optional[str] = None
+    title: Optional[str] = None
+    node_type: NodeType
+    content: str
+    snippet: str
+    content_hash: str
+    page_number: Optional[int] = None
+    score: float = 1.0
+
+    model_config = ConfigDict(from_attributes=True)

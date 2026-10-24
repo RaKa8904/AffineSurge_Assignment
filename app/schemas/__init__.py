@@ -21,10 +21,11 @@ from app.schemas.selection import (
     SelectionNodeResponse,
 )
 from app.schemas.test_case import (
-    TestCaseBase,
-    TestCaseResponse,
-    TestCaseGenerateRequest,
-    StalenessCheckResult,
+    QATestCase,
+    QATestCaseSuite,
+    TestCaseNodeStaleness,
+    TestCaseRetrievalResponse,
+    GenerationResponse,
 )
 
 __all__ = [
@@ -41,8 +42,9 @@ __all__ = [
     "SelectionCreateRequest",
     "SelectionResponse",
     "SelectionNodeResponse",
-    "TestCaseBase",
-    "TestCaseResponse",
-    "TestCaseGenerateRequest",
-    "StalenessCheckResult",
+    "QATestCase",
+    "QATestCaseSuite",
+    "TestCaseNodeStaleness",
+    "TestCaseRetrievalResponse",
+    "GenerationResponse",
 ]

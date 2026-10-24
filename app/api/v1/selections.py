@@ -1,9 +1,10 @@
-"""API routes for Version-Pinned Selections.
+"""API routes for Version-Pinned Selections and LLM Test Case Generation.
 """
 
+from datetime import datetime, timezone
 from typing import List, Optional
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -13,6 +14,14 @@ from app.models.node import Node
 from app.models.version import DocumentVersion
 from app.schemas.selection import SelectionCreateRequest, SelectionResponse, SelectionNodeResponse
 from app.schemas.node import NodeResponse
+from app.schemas.test_case import GenerationResponse, QATestCase
+from app.services.llm_generator import (
+    load_llm_output_from_store,
+    save_llm_output_to_store,
+    generate_test_cases_with_retry,
+    get_json_store_dir,
+    reconstruct_selection_text,
+)
 
 router = APIRouter(prefix="/selections", tags=["Selections"])
 
@@ -150,6 +159,87 @@ def create_or_get_selection(
 
     response.status_code = status.HTTP_201_CREATED
     return format_selection_response(selection)
+
+
+@router.post("/{selection_id}/generate", response_model=GenerationResponse)
+def generate_selection_test_cases(
+    selection_id: str,
+    force_regenerate: bool = Query(False, description="If True, bypasses cache and regenerates with LLM"),
+    db: Session = Depends(get_db)
+):
+    """Generates 3-5 QA test cases from version-pinned selection nodes using LangChain.
+
+    Duplicate Policy:
+    If test cases were already generated for this selection_id, returns existing data
+    immediately to save LLM compute costs, unless force_regenerate=true.
+    """
+    selection = db.query(Selection).filter(Selection.id == selection_id).first()
+    if not selection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Selection '{selection_id}' not found"
+        )
+
+    # Check for existing generation in JSON store
+    existing_data = load_llm_output_from_store(selection_id)
+    if existing_data and not force_regenerate:
+        test_cases_dto = [QATestCase.model_validate(tc) for tc in existing_data.get("test_cases", [])]
+        gen_time = (
+            datetime.fromisoformat(existing_data["generated_at"])
+            if "generated_at" in existing_data
+            else datetime.now(timezone.utc)
+        )
+        return GenerationResponse(
+            selection_id=selection.id,
+            version_id=selection.version_id,
+            version_tag=selection.version.version_tag,
+            test_case_count=len(test_cases_dto),
+            test_cases=test_cases_dto,
+            generated_at=gen_time,
+            from_cache=True,
+            storage_path=str(get_json_store_dir() / f"{selection_id}.json"),
+            retry_count=existing_data.get("retry_count", 0),
+        )
+
+    # Generate with retry strategy
+    try:
+        suite, retries_used = generate_test_cases_with_retry(selection=selection)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"LLM test case generation failed: {exc}"
+        )
+
+    # Persist into JSON store
+    now = datetime.now(timezone.utc)
+    payload_to_store = {
+        "selection_id": selection.id,
+        "selection_title": selection.title,
+        "version_id": selection.version_id,
+        "version_tag": selection.version.version_tag,
+        "test_case_count": len(suite.test_cases),
+        "test_cases": [tc.model_dump() for tc in suite.test_cases],
+        "generated_at": now.isoformat(),
+        "retry_count": retries_used,
+        "reconstructed_text": reconstruct_selection_text(selection),
+        "storage_justification": (
+            "File-based JSON store adheres to IEC 62304 / FDA 21 CFR Part 11 auditability "
+            "and separates unstructured LLM artifacts from relational version trees."
+        )
+    }
+    file_path = save_llm_output_to_store(selection_id, payload_to_store)
+
+    return GenerationResponse(
+        selection_id=selection.id,
+        version_id=selection.version_id,
+        version_tag=selection.version.version_tag,
+        test_case_count=len(suite.test_cases),
+        test_cases=suite.test_cases,
+        generated_at=now,
+        from_cache=False,
+        storage_path=str(file_path),
+        retry_count=retries_used,
+    )
 
 
 @router.get("", response_model=List[SelectionResponse])

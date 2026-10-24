@@ -2,6 +2,7 @@
 """
 
 import pytest
+import app.services.pdf_runtime  # noqa: F401
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
